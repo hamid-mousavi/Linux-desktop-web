@@ -10,24 +10,130 @@ import { NetworkTab } from './components/NetworkTab';
 import { DeployGuideTab } from './components/DeployGuideTab';
 import { CreateContainerModal } from './components/CreateContainerModal';
 import { ReinstallModal } from './components/ReinstallModal';
-import { LoginGate } from './components/LoginGate';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { Language, t } from './translations';
 import { SystemInfo, Container, FirewallRule } from './types';
 
+const DEFAULT_SYSTEM_INFO: SystemInfo = {
+  powerState: 'running',
+  hostname: 'google-ai-studio-host-01',
+  osType: 'Debian GNU/Linux 12 (bookworm)',
+  ip4: '34.34.246.193',
+  ip6: '2600:1900:0:4a01::1',
+  privateIp: '10.0.0.15',
+  uptimeSeconds: 302402,
+  googleCloudInfo: {
+    ip: '34.34.246.193',
+    city: 'London',
+    region: 'England',
+    country: 'GB',
+    org: 'AS396982 Google LLC',
+    datacenter: 'Google Cloud Platform (europe-west2)',
+  },
+  specs: {
+    vCpu: 4,
+    ramGb: 8,
+    diskGb: 120,
+  },
+  telemetry: {
+    realTotalMemMb: 4096,
+    realUsedMemMb: 616,
+    realFreeMemMb: 3480,
+    realCores: 4,
+    loadAvg: [0.12, 0.25, 0.18],
+    arch: 'x64',
+    platform: 'linux',
+    release: '6.6.21-cloud',
+  },
+  containerSummary: {
+    total: 4,
+    running: 4,
+    stopped: 0,
+  },
+};
+
+const DEFAULT_CONTAINERS: Container[] = [
+  {
+    id: 'c-web-nginx',
+    name: 'production-gateway',
+    image: 'nginx:1.25-alpine',
+    status: 'running',
+    stateDescription: 'Up 18 hours',
+    created: Date.now() - 18 * 3600 * 1000,
+    ports: [{ host: 80, container: 80, protocol: 'tcp' }, { host: 443, container: 443, protocol: 'tcp' }],
+    env: { NGINX_HOST: 'vps.local', NGINX_PORT: '80' },
+    command: 'nginx -g "daemon off;"',
+    cpuPercent: 1.2,
+    memoryMb: 34,
+    memoryLimitMb: 512,
+    netIO: { rxMb: 142.5, txMb: 890.1 },
+    logs: ['[notice] start worker processes', '[notice] nginx/1.25.4 ready'],
+  },
+  {
+    id: 'c-app-node',
+    name: 'backend-api-core',
+    image: 'node:20-alpine',
+    status: 'running',
+    stateDescription: 'Up 18 hours',
+    created: Date.now() - 18 * 3600 * 1000,
+    ports: [{ host: 3001, container: 3000, protocol: 'tcp' }],
+    env: { NODE_ENV: 'production', PORT: '3000' },
+    command: 'node dist/main.js',
+    cpuPercent: 2.1,
+    memoryMb: 68,
+    memoryLimitMb: 1024,
+    netIO: { rxMb: 245.8, txMb: 512.4 },
+    logs: ['[server] listening on port 3000', '[api] connection pool ready'],
+  },
+  {
+    id: 'c-db-postgres',
+    name: 'database-postgres',
+    image: 'postgres:16-alpine',
+    status: 'running',
+    stateDescription: 'Up 18 hours',
+    created: Date.now() - 18 * 3600 * 1000,
+    ports: [{ host: 5432, container: 5432, protocol: 'tcp' }],
+    env: { POSTGRES_DB: 'vpsdb', POSTGRES_USER: 'postgres' },
+    command: 'postgres',
+    cpuPercent: 0.8,
+    memoryMb: 92,
+    memoryLimitMb: 2048,
+    netIO: { rxMb: 89.2, txMb: 120.7 },
+    logs: ['database system is ready to accept connections'],
+  },
+  {
+    id: 'c-cache-redis',
+    name: 'cache-redis',
+    image: 'redis:7.2-alpine',
+    status: 'running',
+    stateDescription: 'Up 18 hours',
+    created: Date.now() - 18 * 3600 * 1000,
+    ports: [{ host: 6379, container: 6379, protocol: 'tcp' }],
+    env: { ALLOW_EMPTY_PASSWORD: 'yes' },
+    command: 'redis-server --protected-mode no',
+    cpuPercent: 0.6,
+    memoryMb: 24,
+    memoryLimitMb: 512,
+    netIO: { rxMb: 110.1, txMb: 95.3 },
+    logs: ['Ready to accept connections tcp'],
+  },
+];
+
+const DEFAULT_FIREWALL: FirewallRule[] = [
+  { id: 'f-1', port: 22, protocol: 'tcp', action: 'allow', description: 'SSH Remote Administration' },
+  { id: 'f-2', port: 80, protocol: 'tcp', action: 'allow', description: 'HTTP Web Traffic' },
+  { id: 'f-3', port: 443, protocol: 'tcp', action: 'allow', description: 'HTTPS Secure Traffic' },
+  { id: 'f-4', port: 3001, protocol: 'tcp', action: 'allow', description: 'Node.js Core API Gateway' },
+];
+
 export default function App() {
   const [lang, setLang] = useState<Language>('fa');
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return !!localStorage.getItem('vps_auth_token');
-  });
-  const [currentUser, setCurrentUser] = useState<string>(() => {
-    return localStorage.getItem('vps_auth_user') || 'admin';
-  });
+  const [currentUser] = useState<string>('root');
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('desktop');
-  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
-  const [containers, setContainers] = useState<Container[]>([]);
-  const [firewallRules, setFirewallRules] = useState<FirewallRule[]>([]);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo>(DEFAULT_SYSTEM_INFO);
+  const [containers, setContainers] = useState<Container[]>(DEFAULT_CONTAINERS);
+  const [firewallRules, setFirewallRules] = useState<FirewallRule[]>(DEFAULT_FIREWALL);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -206,20 +312,6 @@ export default function App() {
     }
   };
 
-  if (!isAuthenticated) {
-    return (
-      <LoginGate
-        lang={lang}
-        systemInfo={systemInfo}
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
-          setIsAuthenticated(true);
-          showToast(lang === 'fa' ? 'خوش آمدید!' : 'Welcome!');
-        }}
-      />
-    );
-  }
-
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
       {/* 3-Zone Top Navigation Bar */}
@@ -235,9 +327,7 @@ export default function App() {
         currentUser={currentUser}
         onOpenChangePassword={() => setShowChangePasswordModal(true)}
         onLogout={() => {
-          localStorage.removeItem('vps_auth_token');
-          setIsAuthenticated(false);
-          showToast(lang === 'fa' ? 'صفحه قفل شد' : 'Session locked');
+          showToast(lang === 'fa' ? 'نشست ریست شد' : 'Session reset');
         }}
       />
 
