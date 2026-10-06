@@ -26,7 +26,8 @@ import {
   Zap,
   Play,
   CornerDownLeft,
-  Server
+  Server,
+  ExternalLink
 } from 'lucide-react';
 import { Language } from '../translations';
 import { SystemInfo } from '../types';
@@ -509,8 +510,20 @@ export const DesktopTab: React.FC<DesktopTabProps> = ({ lang, systemInfo }) => {
                         />
                       </form>
 
-                      <div className="bg-emerald-950/80 border border-emerald-800 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-mono shrink-0">
-                        IP: {googleIp}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <a
+                          href={browserUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open in new window (for strict sites like Google)"
+                          className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[10px] font-mono flex items-center gap-1 cursor-pointer"
+                        >
+                          <ExternalLink className="w-3 h-3 text-cyan-400" />
+                          <span>New Tab</span>
+                        </a>
+                        <div className="bg-emerald-950/80 border border-emerald-800 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-mono">
+                          IP: {googleIp}
+                        </div>
                       </div>
                     </div>
 

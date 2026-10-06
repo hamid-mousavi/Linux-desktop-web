@@ -345,6 +345,16 @@ export const BrowserTab: React.FC<BrowserTabProps> = ({
               >
                 {lang === 'fa' ? 'ورود' : 'Open'}
               </button>
+              <a
+                href={activeTab.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open in new window (for sites with strict frame blocking like Google)"
+                className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs border-l border-zinc-800 transition-colors flex items-center gap-1"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{lang === 'fa' ? 'تب جدید' : 'New Tab'}</span>
+              </a>
             </div>
           </form>
 
