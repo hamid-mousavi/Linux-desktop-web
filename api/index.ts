@@ -3,180 +3,59 @@ import express from 'express';
 const app = express();
 app.use(express.json());
 
-// System Spec & Info for Vercel Serverless
-const vpsInfo = {
-  powerState: 'running',
-  hostname: 'vercel-edge-node-01',
-  osType: 'Debian GNU/Linux 12 (bookworm) · Vercel Serverless',
-  ip4: '34.34.246.193',
-  ip6: '2600:1900:0:4a01::1',
-  privateIp: '10.0.0.15',
-  uptimeSeconds: 302402,
-  googleCloudInfo: {
-    ip: '34.34.246.193',
-    city: 'London',
-    region: 'England',
-    country: 'GB',
-    org: 'AS396982 Google LLC',
-    datacenter: 'Vercel / Cloud Run Edge',
-  },
-  specs: {
-    vCpu: 4,
-    ramGb: 8,
-    diskGb: 120,
-  },
-  telemetry: {
-    realTotalMemMb: 4096,
-    realUsedMemMb: 616,
-    realFreeMemMb: 3480,
-    realCores: 4,
-    loadAvg: [0.12, 0.25, 0.18],
-    arch: 'x64',
-    platform: 'linux',
-    release: '6.6.21-cloud',
-  },
-  containerSummary: {
-    total: 4,
-    running: 4,
-    stopped: 0,
-  },
-};
+// In-Memory Fast Cache Store on Vercel
+interface CacheEntry {
+  html: string;
+  contentType: string;
+  status: number;
+  url: string;
+  title: string;
+  timestamp: number;
+  sizeBytes: number;
+}
 
-const mockContainers = [
-  {
-    id: 'c-web-nginx',
-    name: 'production-gateway',
-    image: 'nginx:1.25-alpine',
-    status: 'running',
-    stateDescription: 'Up 18 hours',
-    created: Date.now() - 18 * 3600 * 1000,
-    ports: [{ host: 80, container: 80, protocol: 'tcp' }, { host: 443, container: 443, protocol: 'tcp' }],
-    env: { NGINX_HOST: 'vps.local', NGINX_PORT: '80' },
-    command: 'nginx -g "daemon off;"',
-    cpuPercent: 1.2,
-    memoryMb: 34,
-    memoryLimitMb: 512,
-    netIO: { rxMb: 142.5, txMb: 890.1 },
-    logs: ['[notice] start worker processes', '[notice] nginx/1.25.4 ready'],
-  },
-  {
-    id: 'c-app-node',
-    name: 'backend-api-core',
-    image: 'node:20-alpine',
-    status: 'running',
-    stateDescription: 'Up 18 hours',
-    created: Date.now() - 18 * 3600 * 1000,
-    ports: [{ host: 3001, container: 3000, protocol: 'tcp' }],
-    env: { NODE_ENV: 'production', PORT: '3000' },
-    command: 'node dist/main.js',
-    cpuPercent: 2.1,
-    memoryMb: 68,
-    memoryLimitMb: 1024,
-    netIO: { rxMb: 245.8, txMb: 512.4 },
-    logs: ['[server] listening on port 3000', '[api] connection pool ready'],
-  },
-  {
-    id: 'c-db-postgres',
-    name: 'database-postgres',
-    image: 'postgres:16-alpine',
-    status: 'running',
-    stateDescription: 'Up 18 hours',
-    created: Date.now() - 18 * 3600 * 1000,
-    ports: [{ host: 5432, container: 5432, protocol: 'tcp' }],
-    env: { POSTGRES_DB: 'vpsdb', POSTGRES_USER: 'postgres' },
-    command: 'postgres',
-    cpuPercent: 0.8,
-    memoryMb: 92,
-    memoryLimitMb: 2048,
-    netIO: { rxMb: 89.2, txMb: 120.7 },
-    logs: ['database system is ready to accept connections'],
-  },
-  {
-    id: 'c-cache-redis',
-    name: 'cache-redis',
-    image: 'redis:7.2-alpine',
-    status: 'running',
-    stateDescription: 'Up 18 hours',
-    created: Date.now() - 18 * 3600 * 1000,
-    ports: [{ host: 6379, container: 6379, protocol: 'tcp' }],
-    env: { ALLOW_EMPTY_PASSWORD: 'yes' },
-    command: 'redis-server --protected-mode no',
-    cpuPercent: 0.6,
-    memoryMb: 24,
-    memoryLimitMb: 512,
-    netIO: { rxMb: 110.1, txMb: 95.3 },
-    logs: ['Ready to accept connections tcp'],
-  },
-];
+const memoryCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 1000 * 60 * 20; // 20 minutes TTL
 
-const mockFirewall = [
-  { id: 'f-1', port: 22, protocol: 'tcp', action: 'allow', description: 'SSH Remote Administration' },
-  { id: 'f-2', port: 80, protocol: 'tcp', action: 'allow', description: 'HTTP Web Traffic' },
-  { id: 'f-3', port: 443, protocol: 'tcp', action: 'allow', description: 'HTTPS Secure Traffic' },
-  { id: 'f-4', port: 3001, protocol: 'tcp', action: 'allow', description: 'Node.js Core API Gateway' },
-];
-
-// 1. System info
-app.get('/api/vps/system-info', (req, res) => {
-  res.json(vpsInfo);
-});
-
-// 2. Containers
-app.get('/api/vps/containers', (req, res) => {
-  res.json(mockContainers);
-});
-
-// 3. Firewall
-app.get('/api/vps/firewall', (req, res) => {
-  res.json(mockFirewall);
-});
-
-// 4. Exec shell
-app.post('/api/vps/exec', (req, res) => {
-  const cmd = (req.body?.command || '').trim();
-  if (cmd.includes('ipinfo') || cmd.includes('ifconfig')) {
-    return res.json({
-      stdout: JSON.stringify({ ip: '34.34.246.193', city: 'London', region: 'England', country: 'GB', org: 'AS396982 Google LLC' }, null, 2) + '\n',
-      stderr: '',
-      exitCode: 0,
-    });
-  }
-  if (cmd === 'uname -a') {
-    return res.json({
-      stdout: 'Linux debian-cloud-node-01 6.6.21-cloud-gvisor #1 SMP Debian GNU/Linux 12 (bookworm) x86_64 GNU/Linux\n',
-      stderr: '',
-      exitCode: 0,
-    });
-  }
-  if (cmd.startsWith('echo ')) {
-    return res.json({ stdout: cmd.replace('echo ', '') + '\n', stderr: '', exitCode: 0 });
-  }
-  res.json({
-    stdout: `[bash: root@vps] ${cmd}: command executed successfully (exit 0)\n`,
-    stderr: '',
-    exitCode: 0,
-  });
-});
-
-// 5. Authentication (Always success)
-app.get('/api/vps/auth/info', (req, res) => {
-  res.json({ username: 'root', isDefaultPassword: true });
-});
-
-app.post('/api/vps/auth/login', (req, res) => {
-  res.json({ success: true, token: 'token_ok', username: 'root' });
-});
-
-// 6. Universal Unblocker Proxy for any website (Bypasses X-Frame-Options and CSP)
-app.get('/api/vps/browser/view', async (req, res) => {
-  let targetUrl = (req.query.url as string) || '';
-  if (!targetUrl) return res.status(400).send('URL required');
-
-  if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-    if (targetUrl.includes('.') && !targetUrl.includes(' ')) {
-      targetUrl = 'https://' + targetUrl;
+function normalizeUrl(rawUrl: string): string {
+  let target = rawUrl.trim();
+  if (!target) return '';
+  if (!target.startsWith('http://') && !target.startsWith('https://')) {
+    if (target.includes('.') && !target.includes(' ')) {
+      target = 'https://' + target;
     } else {
-      targetUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(targetUrl)}`;
+      target = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(target)}`;
+    }
+  }
+  return target;
+}
+
+// 1. Browser View Engine (with Caching & X-Frame-Options Stripping)
+app.get(['/api/browser/view', '/api/vps/browser/view'], async (req, res) => {
+  const rawUrl = (req.query.url as string) || '';
+  if (!rawUrl) return res.status(400).send('URL is required');
+
+  const targetUrl = normalizeUrl(rawUrl);
+  const bypassCache = req.query.nocache === '1' || req.query.refresh === 'true';
+
+  // Special handling for YouTube video links: redirect to embed player so video plays smoothly
+  const ytMatch = targetUrl.match(/(?:youtube\.com\/(?:watch\?.*v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+  if (ytMatch && ytMatch[1]) {
+    return res.redirect(`https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1`);
+  }
+
+  // Check in-memory cache
+  if (!bypassCache && memoryCache.has(targetUrl)) {
+    const entry = memoryCache.get(targetUrl)!;
+    if (Date.now() - entry.timestamp < CACHE_TTL_MS) {
+      res.setHeader('X-Cache-Status', 'HIT');
+      res.setHeader('Cache-Control', 'public, s-maxage=1200, max-age=1200');
+      res.setHeader('Content-Type', entry.contentType);
+      res.removeHeader('X-Frame-Options');
+      res.removeHeader('Content-Security-Policy');
+      return res.send(entry.html);
+    } else {
+      memoryCache.delete(targetUrl);
     }
   }
 
@@ -185,8 +64,12 @@ app.get('/api/vps/browser/view', async (req, res) => {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9,fa;q=0.8',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Upgrade-Insecure-Requests': '1',
       },
       redirect: 'follow',
     });
@@ -195,61 +78,135 @@ app.get('/api/vps/browser/view', async (req, res) => {
     res.setHeader('Content-Type', contentType);
     res.removeHeader('X-Frame-Options');
     res.removeHeader('Content-Security-Policy');
+    res.setHeader('X-Cache-Status', 'MISS');
+    res.setHeader('Cache-Control', 'public, s-maxage=1200, max-age=1200');
 
     if (contentType.includes('text/html') || contentType.includes('application/xhtml')) {
       let html = await response.text();
       const finalUrl = response.url || targetUrl;
-      const parsedBase = new URL(finalUrl);
-      const baseHref = parsedBase.origin + parsedBase.pathname.substring(0, parsedBase.pathname.lastIndexOf('/') + 1);
+      const parsed = new URL(finalUrl);
+      const baseHref = parsed.origin + parsed.pathname.substring(0, parsed.pathname.lastIndexOf('/') + 1);
 
-      // Strip meta CSP & X-Frame-Options tags from HTML
+      // Extract title
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const title = titleMatch ? titleMatch[1].trim() : parsed.hostname;
+
+      // Strip meta CSP & X-Frame-Options tags
       html = html.replace(/<meta[^>]*http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, '');
       html = html.replace(/<meta[^>]*http-equiv=["']?X-Frame-Options["']?[^>]*>/gi, '');
 
-      // Client link interceptor
-      const clientScript = `
+      // Neutralize frame-busting scripts (fixes Firefox "Can't Open This Page" on DuckDuckGo/Google)
+      html = html.replace(/top\.location\s*!=\s*self\.location/gi, 'false');
+      html = html.replace(/top\.location\s*!==\s*self\.location/gi, 'false');
+      html = html.replace(/self\.location\s*!=\s*top\.location/gi, 'false');
+      html = html.replace(/self\.location\s*!==\s*top\.location/gi, 'false');
+      html = html.replace(/window\.top\s*!==\s*window\.self/gi, 'false');
+      html = html.replace(/top\s*!==\s*self/gi, 'false');
+      html = html.replace(/window\.top\.location/gi, 'window.location');
+      html = html.replace(/top\.location\.href\s*=/gi, 'window.location.href =');
+      html = html.replace(/top\.location\s*=/gi, 'window.location =');
+
+      // Replace target="_top", "_parent", and "_blank" so links and search forms stay inside the iframe
+      html = html.replace(/target\s*=\s*["']?_top["']?/gi, 'target="_self"');
+      html = html.replace(/target\s*=\s*["']?_parent["']?/gi, 'target="_self"');
+      html = html.replace(/target\s*=\s*["']?_blank["']?/gi, 'target="_self"');
+
+      // Injected script to intercept clicks, form submissions, and prevent breakout
+      const linkInterceptorScript = `
         <script>
+          // 1. Intercept link clicks
           document.addEventListener('click', function(e) {
             var a = e.target.closest('a');
             if (a && a.href && !a.href.startsWith('javascript:') && !a.href.startsWith('#')) {
               e.preventDefault();
-              window.location.href = '/api/vps/browser/view?url=' + encodeURIComponent(a.href);
+              window.location.href = '/api/browser/view?url=' + encodeURIComponent(a.href);
             }
-          });
+          }, true);
+
+          // 2. Intercept search forms and form submissions (fixes DuckDuckGo and Google search)
+          document.addEventListener('submit', function(e) {
+            var form = e.target;
+            if (!form) return;
+            e.preventDefault();
+            try {
+              var formData = new FormData(form);
+              var params = new URLSearchParams();
+              for (var pair of formData.entries()) {
+                params.append(pair[0], pair[1]);
+              }
+              var rawAction = form.getAttribute('action') || window.location.href;
+              var actionUrl;
+              try {
+                actionUrl = new URL(rawAction, window.location.href);
+              } catch (err) {
+                actionUrl = new URL(rawAction, "${baseHref}");
+              }
+              var queryStr = params.toString();
+              var fullTarget = actionUrl.origin + actionUrl.pathname + (queryStr ? '?' + queryStr : '');
+              window.location.href = '/api/browser/view?url=' + encodeURIComponent(fullTarget);
+            } catch (err) {
+              form.submit();
+            }
+          }, true);
         </script>
       `;
 
-      const baseTag = `<base href="${baseHref}">\n${clientScript}`;
-      const output = html.includes('<head>')
+      const baseTag = `<base href="${baseHref}">\n${linkInterceptorScript}`;
+      const renderedHtml = html.includes('<head>')
         ? html.replace('<head>', `<head>${baseTag}`)
         : html.includes('<HEAD>')
         ? html.replace('<HEAD>', `<HEAD>${baseTag}`)
         : baseTag + html;
 
-      return res.send(output);
+      // Save to cache
+      memoryCache.set(targetUrl, {
+        html: renderedHtml,
+        contentType,
+        status: response.status,
+        url: finalUrl,
+        title,
+        timestamp: Date.now(),
+        sizeBytes: Buffer.byteLength(renderedHtml, 'utf8'),
+      });
+
+      return res.send(renderedHtml);
     } else {
       const buffer = await response.arrayBuffer();
       return res.send(Buffer.from(buffer));
     }
   } catch (err: any) {
-    res.status(500).send(`
-      <div style="font-family:sans-serif;padding:30px;text-align:center;color:#eee;background:#18181b;">
-        <h3>خطا در باز کردن وبسایت</h3>
-        <p style="color:#aaa;">نشانی: <code>${targetUrl}</code></p>
-        <p style="color:#f87171;">علت: ${err.message}</p>
-        <p><a href="${targetUrl}" target="_blank" style="color:#38bdf8;">باز کردن در پنجره جدید (Open in new window)</a></p>
+    res.status(502).send(`
+      <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;text-align:center;color:#eee;background:#18181b;line-height:1.6;">
+        <h2 style="color:#ef4444;margin-bottom:8px;">خطا در بارگذاری وبسایت</h2>
+        <p style="color:#a1a1aa;font-size:14px;">نشانی: <code>${targetUrl}</code></p>
+        <p style="color:#f87171;font-size:13px;margin:16px 0;">علت: ${err.message}</p>
+        <div style="margin-top:24px;">
+          <a href="${targetUrl}" target="_blank" rel="noopener noreferrer" style="background:#2563eb;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:500;">
+            باز کردن مستقیم در تب جدید ↗
+          </a>
+        </div>
       </div>
     `);
   }
 });
 
-// 7. Browser Fetch API
-app.get('/api/vps/browser/fetch', async (req, res) => {
-  let targetUrl = (req.query.url as string) || '';
-  if (!targetUrl) return res.status(400).json({ error: 'URL required' });
+// 2. Fetch JSON endpoint
+app.get(['/api/browser/fetch', '/api/vps/browser/fetch'], async (req, res) => {
+  const rawUrl = (req.query.url as string) || '';
+  if (!rawUrl) return res.status(400).json({ error: 'URL is required' });
 
-  if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-    targetUrl = 'https://' + targetUrl;
+  const targetUrl = normalizeUrl(rawUrl);
+
+  if (memoryCache.has(targetUrl)) {
+    const cached = memoryCache.get(targetUrl)!;
+    return res.json({
+      success: true,
+      cached: true,
+      url: cached.url,
+      title: cached.title,
+      contentType: cached.contentType,
+      status: cached.status,
+    });
   }
 
   try {
@@ -258,13 +215,30 @@ app.get('/api/vps/browser/fetch', async (req, res) => {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
       },
-      redirect: 'follow',
     });
-    const html = await response.text();
-    res.json({ success: true, url: response.url || targetUrl, html });
+    res.json({
+      success: true,
+      cached: false,
+      status: response.status,
+      url: response.url || targetUrl,
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// 3. Cache Management
+app.get('/api/cache/stats', (req, res) => {
+  res.json({
+    totalEntries: memoryCache.size,
+    ttlMinutes: CACHE_TTL_MS / (1000 * 60),
+  });
+});
+
+app.post('/api/cache/clear', (req, res) => {
+  const count = memoryCache.size;
+  memoryCache.clear();
+  res.json({ success: true, clearedEntries: count });
 });
 
 export default app;

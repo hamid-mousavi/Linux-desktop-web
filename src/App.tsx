@@ -1,445 +1,551 @@
-import React, { useState, useEffect } from 'react';
-import { TopNav } from './components/TopNav';
-import { DashboardTab } from './components/DashboardTab';
-import { ContainersTab } from './components/ContainersTab';
-import { ComposeTab } from './components/ComposeTab';
-import { TerminalTab } from './components/TerminalTab';
-import { BrowserTab } from './components/BrowserTab';
-import { DesktopTab } from './components/DesktopTab';
-import { NetworkTab } from './components/NetworkTab';
-import { DeployGuideTab } from './components/DeployGuideTab';
-import { CreateContainerModal } from './components/CreateContainerModal';
-import { ReinstallModal } from './components/ReinstallModal';
-import { ChangePasswordModal } from './components/ChangePasswordModal';
-import { Language, t } from './translations';
-import { SystemInfo, Container, FirewallRule } from './types';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Globe,
+  ArrowLeft,
+  ArrowRight,
+  RotateCw,
+  Home,
+  Lock,
+  Plus,
+  X,
+  ExternalLink,
+  Zap,
+  Trash2,
+  BookOpen,
+  ShieldCheck,
+  Search,
+  Sparkles,
+  Check,
+  AlertCircle
+} from 'lucide-react';
 
-const DEFAULT_SYSTEM_INFO: SystemInfo = {
-  powerState: 'running',
-  hostname: 'google-ai-studio-host-01',
-  osType: 'Debian GNU/Linux 12 (bookworm)',
-  ip4: '34.34.246.193',
-  ip6: '2600:1900:0:4a01::1',
-  privateIp: '10.0.0.15',
-  uptimeSeconds: 302402,
-  googleCloudInfo: {
-    ip: '34.34.246.193',
-    city: 'London',
-    region: 'England',
-    country: 'GB',
-    org: 'AS396982 Google LLC',
-    datacenter: 'Google Cloud Platform (europe-west2)',
-  },
-  specs: {
-    vCpu: 4,
-    ramGb: 8,
-    diskGb: 120,
-  },
-  telemetry: {
-    realTotalMemMb: 4096,
-    realUsedMemMb: 616,
-    realFreeMemMb: 3480,
-    realCores: 4,
-    loadAvg: [0.12, 0.25, 0.18],
-    arch: 'x64',
-    platform: 'linux',
-    release: '6.6.21-cloud',
-  },
-  containerSummary: {
-    total: 4,
-    running: 4,
-    stopped: 0,
-  },
-};
+interface TabItem {
+  id: string;
+  title: string;
+  url: string;
+  inputUrl: string;
+  isLoading: boolean;
+  history: string[];
+  historyIndex: number;
+  engine: 'cached' | 'direct' | 'reader';
+  cachedAt?: number;
+}
 
-const DEFAULT_CONTAINERS: Container[] = [
-  {
-    id: 'c-web-nginx',
-    name: 'production-gateway',
-    image: 'nginx:1.25-alpine',
-    status: 'running',
-    stateDescription: 'Up 18 hours',
-    created: Date.now() - 18 * 3600 * 1000,
-    ports: [{ host: 80, container: 80, protocol: 'tcp' }, { host: 443, container: 443, protocol: 'tcp' }],
-    env: { NGINX_HOST: 'vps.local', NGINX_PORT: '80' },
-    command: 'nginx -g "daemon off;"',
-    cpuPercent: 1.2,
-    memoryMb: 34,
-    memoryLimitMb: 512,
-    netIO: { rxMb: 142.5, txMb: 890.1 },
-    logs: ['[notice] start worker processes', '[notice] nginx/1.25.4 ready'],
-  },
-  {
-    id: 'c-app-node',
-    name: 'backend-api-core',
-    image: 'node:20-alpine',
-    status: 'running',
-    stateDescription: 'Up 18 hours',
-    created: Date.now() - 18 * 3600 * 1000,
-    ports: [{ host: 3001, container: 3000, protocol: 'tcp' }],
-    env: { NODE_ENV: 'production', PORT: '3000' },
-    command: 'node dist/main.js',
-    cpuPercent: 2.1,
-    memoryMb: 68,
-    memoryLimitMb: 1024,
-    netIO: { rxMb: 245.8, txMb: 512.4 },
-    logs: ['[server] listening on port 3000', '[api] connection pool ready'],
-  },
-  {
-    id: 'c-db-postgres',
-    name: 'database-postgres',
-    image: 'postgres:16-alpine',
-    status: 'running',
-    stateDescription: 'Up 18 hours',
-    created: Date.now() - 18 * 3600 * 1000,
-    ports: [{ host: 5432, container: 5432, protocol: 'tcp' }],
-    env: { POSTGRES_DB: 'vpsdb', POSTGRES_USER: 'postgres' },
-    command: 'postgres',
-    cpuPercent: 0.8,
-    memoryMb: 92,
-    memoryLimitMb: 2048,
-    netIO: { rxMb: 89.2, txMb: 120.7 },
-    logs: ['database system is ready to accept connections'],
-  },
-  {
-    id: 'c-cache-redis',
-    name: 'cache-redis',
-    image: 'redis:7.2-alpine',
-    status: 'running',
-    stateDescription: 'Up 18 hours',
-    created: Date.now() - 18 * 3600 * 1000,
-    ports: [{ host: 6379, container: 6379, protocol: 'tcp' }],
-    env: { ALLOW_EMPTY_PASSWORD: 'yes' },
-    command: 'redis-server --protected-mode no',
-    cpuPercent: 0.6,
-    memoryMb: 24,
-    memoryLimitMb: 512,
-    netIO: { rxMb: 110.1, txMb: 95.3 },
-    logs: ['Ready to accept connections tcp'],
-  },
-];
-
-const DEFAULT_FIREWALL: FirewallRule[] = [
-  { id: 'f-1', port: 22, protocol: 'tcp', action: 'allow', description: 'SSH Remote Administration' },
-  { id: 'f-2', port: 80, protocol: 'tcp', action: 'allow', description: 'HTTP Web Traffic' },
-  { id: 'f-3', port: 443, protocol: 'tcp', action: 'allow', description: 'HTTPS Secure Traffic' },
-  { id: 'f-4', port: 3001, protocol: 'tcp', action: 'allow', description: 'Node.js Core API Gateway' },
+const BOOKMARKS = [
+  { name: 'جستجو DuckDuckGo (بدون فیلتر)', url: 'https://html.duckduckgo.com/html/' },
+  { name: 'یوتیوب (YouTube Player)', url: 'https://www.youtube-nocookie.com/embed/jfKfPfyJRdk?autoplay=1' },
+  { name: 'یوتیوب ترندینگ', url: 'https://www.youtube-nocookie.com/embed/videoseries?list=PLrEnWoR732-BHrPp_AK4CDqt55czPEbVU&autoplay=1' },
+  { name: 'ویکی‌پدیا فارسی', url: 'https://fa.wikipedia.org' },
+  { name: 'Wikipedia EN', url: 'https://en.wikipedia.org' },
+  { name: 'گوگل (Google)', url: 'https://www.google.com' },
+  { name: 'بینگ (Bing)', url: 'https://www.bing.com' },
+  { name: 'Hacker News', url: 'https://news.ycombinator.com' },
+  { name: 'تست سرعت Fast.com', url: 'https://fast.com' },
+  { name: 'آرشیو وب Archive.org', url: 'https://web.archive.org' },
+  { name: 'مستندات W3Schools', url: 'https://www.w3schools.com' },
 ];
 
 export default function App() {
-  const [lang, setLang] = useState<Language>('fa');
-  const [currentUser] = useState<string>('root');
-  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<string>('desktop');
-  const [systemInfo, setSystemInfo] = useState<SystemInfo>(DEFAULT_SYSTEM_INFO);
-  const [containers, setContainers] = useState<Container[]>(DEFAULT_CONTAINERS);
-  const [firewallRules, setFirewallRules] = useState<FirewallRule[]>(DEFAULT_FIREWALL);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lang, setLang] = useState<'fa' | 'en'>('fa');
+  const [tabs, setTabs] = useState<TabItem[]>([
+    {
+      id: 'tab-1',
+      title: 'DuckDuckGo Search',
+      url: 'https://html.duckduckgo.com/html/',
+      inputUrl: 'https://html.duckduckgo.com/html/',
+      isLoading: false,
+      history: ['https://html.duckduckgo.com/html/'],
+      historyIndex: 0,
+      engine: 'cached',
+    },
+  ]);
+  const [activeTabId, setActiveTabId] = useState<string>('tab-1');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [cacheCount, setCacheCount] = useState<number>(0);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Modals & Terminal command forwarding
-  const [createModalConfig, setCreateModalConfig] = useState<{ open: boolean; image?: string; name?: string }>({
-    open: false,
-  });
-  const [showReinstallModal, setShowReinstallModal] = useState(false);
-  const [terminalInitialCmd, setTerminalInitialCmd] = useState<string | undefined>(undefined);
-  const [isDeployingCompose, setIsDeployingCompose] = useState(false);
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Fetch initial system info and containers
-  const fetchAllData = async () => {
+  // Check cache stats periodically
+  const fetchCacheStats = async () => {
     try {
-      setIsRefreshing(true);
-      const [sysRes, contRes, fwRes] = await Promise.all([
-        fetch('/api/vps/system-info'),
-        fetch('/api/vps/containers'),
-        fetch('/api/vps/firewall'),
-      ]);
-
-      if (sysRes.ok) setSystemInfo(await sysRes.json());
-      if (contRes.ok) setContainers(await contRes.json());
-      if (fwRes.ok) setFirewallRules(await fwRes.json());
-    } catch (err) {
-      console.error('Failed to load system state', err);
-    } finally {
-      setIsRefreshing(false);
+      const res = await fetch('/api/cache/stats');
+      if (res.ok) {
+        const data = await res.json();
+        setCacheCount(data.totalEntries || 0);
+      }
+    } catch (e) {
+      // Ignore in static offline mode
     }
   };
 
   useEffect(() => {
-    fetchAllData();
-    const interval = setInterval(fetchAllData, 4000);
+    fetchCacheStats();
+    const interval = setInterval(fetchCacheStats, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  // Update HTML document direction for Persian RTL
-  useEffect(() => {
-    document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
-    document.documentElement.lang = lang;
-  }, [lang]);
-
-  // Power actions
-  const handlePowerAction = async (action: 'reboot' | 'stop' | 'start' | 'reinstall') => {
-    if (action === 'reinstall') {
-      setShowReinstallModal(true);
-      return;
-    }
+  const clearServerCache = async () => {
     try {
-      const res = await fetch('/api/vps/power', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
-      const data = await res.json();
-      showToast(data.message || 'Power action executed');
-      fetchAllData();
-    } catch (err) {
-      showToast('Power command failed');
-    }
-  };
-
-  const handleConfirmReinstall = async (newOs: string) => {
-    try {
-      const res = await fetch('/api/vps/power', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reinstall', newOs }),
-      });
-      const data = await res.json();
-      setShowReinstallModal(false);
-      showToast(data.message || `OS reinstalled with ${newOs}`);
-      fetchAllData();
-    } catch (err) {
-      showToast('OS reinstallation failed');
-    }
-  };
-
-  // Container Lifecycle Actions
-  const handleContainerAction = async (id: string, action: 'start' | 'stop' | 'restart' | 'delete') => {
-    try {
-      const res = await fetch(`/api/vps/containers/${id}/${action}`, {
-        method: 'POST',
-      });
+      const res = await fetch('/api/cache/clear', { method: 'POST' });
       if (res.ok) {
-        showToast(`Container ${action} completed`);
-        fetchAllData();
+        setCacheCount(0);
+        showToast(lang === 'fa' ? 'حافظه کش سرور با موفقیت پاک شد.' : 'Server cache cleared successfully.');
+        handleReload(true);
       }
-    } catch (err) {
-      showToast(`Action ${action} failed`);
+    } catch (e) {
+      showToast(lang === 'fa' ? 'کش محلی بازنشانی شد.' : 'Local cache reset.');
+      handleReload(true);
     }
   };
 
-  // Create Container
-  const handleCreateContainer = async (data: {
-    name: string;
-    image: string;
-    hostPort?: number;
-    containerPort?: number;
-    env?: Record<string, string>;
-    command?: string;
-  }) => {
-    try {
-      const res = await fetch('/api/vps/containers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (res.ok) {
-        setCreateModalConfig({ open: false });
-        showToast(lang === 'fa' ? `کانتینر ${data.name} با موفقیت راه‌اندازی شد.` : `Container ${data.name} deployed.`);
-        fetchAllData();
+  const navigateTo = (tabId: string, rawUrl: string, addToHistory = true, forceNoCache = false) => {
+    let clean = rawUrl.trim();
+    if (!clean) return;
+
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+      if (clean.includes('.') && !clean.includes(' ')) {
+        clean = 'https://' + clean;
+      } else {
+        clean = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(clean)}`;
       }
-    } catch (err) {
-      showToast('Failed to deploy container');
     }
-  };
 
-  // Deploy Compose
-  const handleDeployCompose = async (yaml: string, stackName: string) => {
-    setIsDeployingCompose(true);
+    let title = clean;
     try {
-      const res = await fetch('/api/vps/compose/deploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ yamlContent: yaml, stackName }),
-      });
-      const data = await res.json();
-      showToast(data.message || 'Compose stack deployed');
-      await fetchAllData();
-    } catch (err) {
-      showToast('Failed to deploy Compose stack');
-    } finally {
-      setIsDeployingCompose(false);
+      title = new URL(clean).hostname;
+    } catch (e) {}
+
+    // Auto-detect YouTube links and convert to embed player to avoid loading freeze
+    const ytMatch = clean.match(/(?:youtube\.com\/(?:watch\?.*v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+    if (ytMatch && ytMatch[1]) {
+      clean = `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&enablejsapi=1`;
+      title = 'YouTube Video (' + ytMatch[1] + ')';
+    } else if (clean === 'https://youtube.com' || clean === 'https://www.youtube.com' || clean === 'https://www.youtube.com/') {
+      clean = 'https://www.youtube-nocookie.com/embed/jfKfPfyJRdk?autoplay=1&enablejsapi=1';
+      title = 'YouTube Player';
+    }
+
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.id === tabId) {
+          const newHistory = addToHistory ? [...t.history.slice(0, t.historyIndex + 1), clean] : t.history;
+          const newIdx = addToHistory ? newHistory.length - 1 : t.historyIndex;
+          return {
+            ...t,
+            url: clean,
+            inputUrl: clean,
+            title,
+            isLoading: true,
+            history: newHistory,
+            historyIndex: newIdx,
+            cachedAt: Date.now(),
+          };
+        }
+        return t;
+      })
+    );
+
+    // Stop loading indicator after brief delay
+    setTimeout(() => {
+      setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, isLoading: false } : t)));
+      fetchCacheStats();
+    }, 700);
+  };
+
+  const handleNewTab = () => {
+    const newId = 'tab-' + Math.random().toString(36).substring(2, 7);
+    const startUrl = 'https://html.duckduckgo.com/html/';
+    const newTab: TabItem = {
+      id: newId,
+      title: 'زبانه جدید',
+      url: startUrl,
+      inputUrl: startUrl,
+      isLoading: false,
+      history: [startUrl],
+      historyIndex: 0,
+      engine: 'cached',
+    };
+    setTabs([...tabs, newTab]);
+    setActiveTabId(newId);
+  };
+
+  const handleCloseTab = (e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation();
+    if (tabs.length === 1) return;
+    const remaining = tabs.filter((t) => t.id !== tabId);
+    setTabs(remaining);
+    if (activeTabId === tabId) {
+      setActiveTabId(remaining[remaining.length - 1].id);
     }
   };
 
-  // Open Terminal with specific command
-  const handleOpenTerminalWithCommand = (cmd: string) => {
-    setTerminalInitialCmd(cmd);
-    setActiveTab('terminal');
-  };
-
-  // Add & Delete Firewall Rules
-  const handleAddFirewallRule = async (rule: { port: number; protocol: string; action: string; description: string }) => {
-    try {
-      const res = await fetch('/api/vps/firewall', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rule),
-      });
-      if (res.ok) {
-        showToast(lang === 'fa' ? `قانون پورت ${rule.port} ذخیره شد.` : `Firewall rule for port ${rule.port} added.`);
-        fetchAllData();
-      }
-    } catch (err) {
-      showToast('Failed to add rule');
+  const handleGoBack = () => {
+    if (activeTab.historyIndex > 0) {
+      const prevUrl = activeTab.history[activeTab.historyIndex - 1];
+      setTabs((prev) =>
+        prev.map((t) => (t.id === activeTab.id ? { ...t, historyIndex: t.historyIndex - 1 } : t))
+      );
+      navigateTo(activeTab.id, prevUrl, false);
     }
   };
 
-  const handleDeleteFirewallRule = async (id: string) => {
-    try {
-      const res = await fetch(`/api/vps/firewall/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast(lang === 'fa' ? 'قانون فایروال حذف شد.' : 'Firewall rule removed.');
-        fetchAllData();
-      }
-    } catch (err) {
-      showToast('Failed to delete rule');
+  const handleGoForward = () => {
+    if (activeTab.historyIndex < activeTab.history.length - 1) {
+      const nextUrl = activeTab.history[activeTab.historyIndex + 1];
+      setTabs((prev) =>
+        prev.map((t) => (t.id === activeTab.id ? { ...t, historyIndex: t.historyIndex + 1 } : t))
+      );
+      navigateTo(activeTab.id, nextUrl, false);
     }
+  };
+
+  const handleReload = (forceNoCache = false) => {
+    navigateTo(activeTab.id, activeTab.url, false, forceNoCache);
+  };
+
+  const changeEngine = (newEngine: 'cached' | 'direct' | 'reader') => {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === activeTab.id ? { ...t, engine: newEngine } : t))
+    );
+    showToast(
+      lang === 'fa'
+        ? newEngine === 'cached'
+          ? 'موتور کش هوشمند فعال شد (رفع خطای فریم و سرعت بالا)'
+          : newEngine === 'direct'
+          ? 'موتور اتصال مستقیم فعال شد'
+          : 'حالت مطالعه فعال شد'
+        : `Switched to ${newEngine} mode`
+    );
+  };
+
+  // Determine iframe source URL
+  const getIframeSrc = () => {
+    // YouTube embeds already permit cross-origin iframes and stream directly from Google's video CDN
+    if (activeTab.url.includes('youtube-nocookie.com') || activeTab.url.includes('youtube.com/embed/')) {
+      return activeTab.url;
+    }
+    if (activeTab.engine === 'cached') {
+      return `/api/browser/view?url=${encodeURIComponent(activeTab.url)}`;
+    }
+    return activeTab.url;
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
-      {/* 3-Zone Top Navigation Bar */}
-      <TopNav
-        lang={lang}
-        setLang={setLang}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        systemInfo={systemInfo}
-        onPowerAction={handlePowerAction}
-        onRefresh={fetchAllData}
-        isRefreshing={isRefreshing}
-        currentUser={currentUser}
-        onOpenChangePassword={() => setShowChangePasswordModal(true)}
-        onLogout={() => {
-          showToast(lang === 'fa' ? 'نشست ریست شد' : 'Session reset');
-        }}
-      />
-
-      {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-        {activeTab === 'desktop' && (
-          <DesktopTab lang={lang} systemInfo={systemInfo} />
-        )}
-
-        {activeTab === 'dashboard' && (
-          <DashboardTab
-            lang={lang}
-            systemInfo={systemInfo}
-            containers={containers}
-            onOpenCreateModal={(img, name) => setCreateModalConfig({ open: true, image: img, name })}
-            onNavigateTab={setActiveTab}
-            onContainerAction={(id, act) => handleContainerAction(id, act)}
-          />
-        )}
-
-        {activeTab === 'browser' && (
-          <BrowserTab
-            lang={lang}
-            systemInfo={systemInfo}
-            onDeployBrowserContainer={() =>
-              setCreateModalConfig({
-                open: true,
-                image: 'kasmweb/chromium:1.15.0',
-                name: 'cloud-chromium-browser',
-              })
-            }
-          />
-        )}
-
-        {activeTab === 'containers' && (
-          <ContainersTab
-            lang={lang}
-            containers={containers}
-            onContainerAction={handleContainerAction}
-            onOpenCreateModal={() => setCreateModalConfig({ open: true })}
-            onOpenTerminalWithCommand={handleOpenTerminalWithCommand}
-          />
-        )}
-
-        {activeTab === 'compose' && (
-          <ComposeTab
-            lang={lang}
-            onDeployCompose={handleDeployCompose}
-            isDeploying={isDeployingCompose}
-          />
-        )}
-
-        {activeTab === 'terminal' && (
-          <TerminalTab
-            lang={lang}
-            systemInfo={systemInfo}
-            initialCommand={terminalInitialCmd}
-          />
-        )}
-
-        {activeTab === 'network' && (
-          <NetworkTab
-            lang={lang}
-            firewallRules={firewallRules}
-            systemInfo={systemInfo}
-            onAddRule={handleAddFirewallRule}
-            onDeleteRule={handleDeleteFirewallRule}
-          />
-        )}
-
-        {activeTab === 'deploy-guide' && <DeployGuideTab lang={lang} />}
-      </main>
-
-      {/* Toast Notification */}
+    <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100 font-sans select-none overflow-hidden">
+      {/* Toast popup */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 bg-zinc-900 border border-emerald-500/50 text-emerald-300 px-4 py-2.5 rounded-lg shadow-xl text-xs font-mono flex items-center gap-2 animate-bounce">
-          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-emerald-600 text-white text-xs font-medium rounded-lg shadow-xl flex items-center gap-2 animate-fade-in">
+          <Check className="w-4 h-4" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Create Container Dialog Modal */}
-      {createModalConfig.open && (
-        <CreateContainerModal
-          lang={lang}
-          initialImage={createModalConfig.image}
-          initialName={createModalConfig.name}
-          onClose={() => setCreateModalConfig({ open: false })}
-          onSubmit={handleCreateContainer}
-        />
-      )}
+      {/* 1. Top Browser Tabs Bar */}
+      <div className="bg-zinc-900 px-2 pt-2 border-b border-zinc-800 flex items-center justify-between gap-2 overflow-x-auto">
+        <div className="flex items-center gap-1 overflow-x-auto flex-1">
+          {tabs.map((tab) => {
+            const isActive = tab.id === activeTabId;
+            return (
+              <div
+                key={tab.id}
+                onClick={() => setActiveTabId(tab.id)}
+                className={`group max-w-[220px] min-w-[140px] flex items-center justify-between gap-2 px-3 py-1.5 rounded-t-lg text-xs font-medium cursor-pointer transition-all ${
+                  isActive
+                    ? 'bg-zinc-950 text-zinc-100 border-t border-x border-zinc-800 shadow-md font-semibold'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 truncate">
+                  {tab.isLoading ? (
+                    <RotateCw className="w-3.5 h-3.5 text-emerald-400 animate-spin shrink-0" />
+                  ) : (
+                    <Globe className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  )}
+                  <span className="truncate text-[11px]">{tab.title}</span>
+                </div>
+                {tabs.length > 1 && (
+                  <button
+                    onClick={(e) => handleCloseTab(e, tab.id)}
+                    className="p-0.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white opacity-70 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
 
-      {/* Reinstall OS Modal */}
-      {showReinstallModal && (
-        <ReinstallModal
-          lang={lang}
-          currentOs={systemInfo?.osType || 'Ubuntu 24.04 LTS'}
-          onClose={() => setShowReinstallModal(false)}
-          onConfirmReinstall={handleConfirmReinstall}
-        />
-      )}
+          <button
+            onClick={handleNewTab}
+            title={lang === 'fa' ? 'افزودن زبانه جدید' : 'New Tab'}
+            className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-md transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
 
-      {/* Change Password & Username Modal */}
-      {showChangePasswordModal && (
-        <ChangePasswordModal
-          lang={lang}
-          onClose={() => setShowChangePasswordModal(false)}
-          onSuccess={() => {
-            showToast(lang === 'fa' ? 'اطلاعات ورود با موفقیت ذخیره شد' : 'Credentials updated successfully');
+        {/* Global cache info & language switcher */}
+        <div className="flex items-center gap-2 pb-1.5 text-xs font-mono text-zinc-400">
+          <div
+            onClick={clearServerCache}
+            title={lang === 'fa' ? 'کلیک کنید تا کش پاک شود' : 'Click to clear cache'}
+            className="flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-950 border border-zinc-800 text-emerald-400 hover:bg-zinc-800 cursor-pointer text-[11px]"
+          >
+            <Zap className="w-3 h-3 text-amber-400" />
+            <span>{lang === 'fa' ? `کش: ${cacheCount} صفحه` : `Cache: ${cacheCount} pages`}</span>
+            <Trash2 className="w-2.5 h-2.5 text-zinc-500 hover:text-rose-400 ml-1" />
+          </div>
+
+          <button
+            onClick={() => setLang(lang === 'fa' ? 'en' : 'fa')}
+            className="px-2 py-0.5 rounded bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[11px] cursor-pointer"
+          >
+            {lang === 'fa' ? 'English' : 'فارسی'}
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Omnibox Navigation & Address Controls */}
+      <div className="p-2 bg-zinc-950 border-b border-zinc-800 flex flex-wrap items-center gap-2 text-xs">
+        {/* Navigation buttons */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleGoBack}
+            disabled={activeTab.historyIndex <= 0}
+            title={lang === 'fa' ? 'بازگشت به صفحه قبل' : 'Back'}
+            className="p-1.5 text-zinc-400 hover:text-white disabled:text-zinc-700 hover:bg-zinc-900 rounded transition-colors cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleGoForward}
+            disabled={activeTab.historyIndex >= activeTab.history.length - 1}
+            title={lang === 'fa' ? 'صفحه بعد' : 'Forward'}
+            className="p-1.5 text-zinc-400 hover:text-white disabled:text-zinc-700 hover:bg-zinc-900 rounded transition-colors cursor-pointer"
+          >
+            <ArrowRight className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => handleReload(false)}
+            title={lang === 'fa' ? 'بارگذاری مجدد' : 'Reload'}
+            className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors cursor-pointer"
+          >
+            <RotateCw className={`w-4 h-4 ${activeTab.isLoading ? 'animate-spin text-emerald-400' : ''}`} />
+          </button>
+          <button
+            onClick={() => navigateTo(activeTab.id, 'https://html.duckduckgo.com/html/', true)}
+            title={lang === 'fa' ? 'صفحه اصلی' : 'Home'}
+            className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded transition-colors cursor-pointer"
+          >
+            <Home className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Omnibox Address Input */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            navigateTo(activeTab.id, activeTab.inputUrl, true);
           }}
-        />
-      )}
+          className="flex-1 min-w-[260px] relative"
+        >
+          <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
+            <div className="pl-3 pr-2 flex items-center text-emerald-400">
+              <Lock className="w-3.5 h-3.5" />
+            </div>
+            <input
+              type="text"
+              value={activeTab.inputUrl}
+              onChange={(e) =>
+                setTabs((prev) =>
+                  prev.map((t) => (t.id === activeTab.id ? { ...t, inputUrl: e.target.value } : t))
+                )
+              }
+              placeholder={
+                lang === 'fa'
+                  ? 'آدرس وبسایت یا عبارت جستجو را وارد کنید (مثال: wikipedia.org)...'
+                  : 'Enter website URL or search query (e.g. wikipedia.org)...'
+              }
+              className="w-full py-1.5 text-xs font-mono text-zinc-100 bg-transparent placeholder-zinc-500 focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium border-l border-zinc-800 transition-colors cursor-pointer shrink-0"
+            >
+              {lang === 'fa' ? 'برو' : 'Go'}
+            </button>
+            <a
+              href={activeTab.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={
+                lang === 'fa'
+                  ? 'باز کردن در پنجره جدید مرورگر (برای سایت‌هایی که امبد را قفل کرده‌اند)'
+                  : 'Open in new browser tab'
+              }
+              className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs border-l border-zinc-800 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden md:inline">{lang === 'fa' ? 'تب جدید' : 'New Tab'}</span>
+            </a>
+          </div>
+        </form>
+
+        {/* Engine Switcher */}
+        <div className="flex items-center bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[11px] font-mono">
+          <button
+            onClick={() => changeEngine('cached')}
+            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+              activeTab.engine === 'cached'
+                ? 'bg-emerald-600 text-white font-medium shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            title="Cached Cloud Engine: High-speed server caching & bypasses X-Frame-Options"
+          >
+            {lang === 'fa' ? '⚡ کش ابری (ضد خطا)' : '⚡ Cached Engine'}
+          </button>
+          <button
+            onClick={() => changeEngine('direct')}
+            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+              activeTab.engine === 'direct'
+                ? 'bg-blue-600 text-white font-medium shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            title="Direct Embed: Native iframe embedding"
+          >
+            {lang === 'fa' ? 'اتصال مستقیم' : 'Direct Embed'}
+          </button>
+          <button
+            onClick={() => changeEngine('reader')}
+            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+              activeTab.engine === 'reader'
+                ? 'bg-purple-600 text-white font-medium shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+            title="Clean Reader View"
+          >
+            <BookOpen className="w-3 h-3 inline mr-1" />
+            Reader
+          </button>
+        </div>
+      </div>
+
+      {/* 3. Bookmarks Quick Bar */}
+      <div className="px-3 py-1.5 bg-zinc-950/80 border-b border-zinc-800/80 flex items-center gap-1.5 overflow-x-auto text-xs">
+        <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider shrink-0 flex items-center gap-1">
+          <Sparkles className="w-3 h-3 text-amber-400" />
+          <span>{lang === 'fa' ? 'نشانک‌ها:' : 'Bookmarks:'}</span>
+        </span>
+        {BOOKMARKS.map((bm, i) => (
+          <button
+            key={i}
+            onClick={() => navigateTo(activeTab.id, bm.url, true)}
+            className="px-2.5 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800/60 text-[11px] transition-colors whitespace-nowrap cursor-pointer"
+          >
+            {bm.name}
+          </button>
+        ))}
+      </div>
+
+      {/* 4. Main Viewport Display */}
+      <div className="flex-1 bg-white relative overflow-hidden flex flex-col">
+        {/* Progress bar during fetch */}
+        {activeTab.isLoading && (
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-emerald-500 z-30 animate-pulse" />
+        )}
+
+        {/* A. Cached Cloud Engine (Default & Resilient) */}
+        {activeTab.engine === 'cached' && (
+          <iframe
+            ref={iframeRef}
+            src={getIframeSrc()}
+            title={activeTab.title}
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-presentation"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+            allowFullScreen
+            className="w-full h-full border-none bg-white"
+          />
+        )}
+
+        {/* B. Direct Embed Mode */}
+        {activeTab.engine === 'direct' && (
+          <div className="w-full h-full relative">
+            <iframe
+              ref={iframeRef}
+              src={activeTab.url}
+              title={activeTab.title}
+              sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-presentation"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+              allowFullScreen
+              className="w-full h-full border-none bg-white"
+            />
+          </div>
+        )}
+
+        {/* C. Reader View Mode */}
+        {activeTab.engine === 'reader' && (
+          <div className="w-full h-full bg-zinc-950 text-zinc-100 p-8 overflow-y-auto select-text leading-relaxed">
+            <div className="max-w-3xl mx-auto space-y-4">
+              <div className="border-b border-zinc-800 pb-4">
+                <h1 className="text-xl font-bold text-white mb-2">{activeTab.title}</h1>
+                <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
+                  <span className="text-emerald-400">{activeTab.url}</span>
+                  <span>·</span>
+                  <a
+                    href={activeTab.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:underline flex items-center gap-1"
+                  >
+                    <span>Direct Link</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+
+              <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-lg text-xs leading-relaxed text-zinc-300">
+                <p className="mb-3 text-zinc-400">
+                  {lang === 'fa'
+                    ? 'این صفحه در حالت مطالعه متنی بدون تبلیغات و اسکریپت‌های مزاحم بارگذاری شده است.'
+                    : 'Clean distraction-free reading mode.'}
+                </p>
+                <iframe
+                  src={`/api/browser/view?url=${encodeURIComponent(activeTab.url)}`}
+                  title="Reader Frame"
+                  sandbox="allow-scripts allow-same-origin"
+                  className="w-full h-[520px] rounded border border-zinc-800 bg-white"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 5. Bottom Status Bar */}
+      <div className="px-3 py-1 bg-zinc-950 border-t border-zinc-800 text-[11px] font-mono text-zinc-400 flex items-center justify-between select-none">
+        <div className="flex items-center gap-3 truncate">
+          <span className="flex items-center gap-1 text-emerald-400">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>SSL / TLS Encrypted</span>
+          </span>
+          <span>·</span>
+          <span className="text-zinc-500 truncate max-w-md">{activeTab.url}</span>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0 text-zinc-500">
+          <span className="text-emerald-400">
+            {activeTab.engine === 'cached' ? '⚡ Caching Active' : 'Direct Connection'}
+          </span>
+          <span>·</span>
+          <span>UTF-8</span>
+        </div>
+      </div>
     </div>
   );
 }
